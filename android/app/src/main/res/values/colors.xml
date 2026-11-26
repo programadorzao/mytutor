@@ -1,0 +1,5 @@
+<resources>
+    <!-- Mesma paleta do iOS (shared/brand/LEIA-ME.txt). -->
+    <color name="background">#1D1D1B</color>
+    <color name="yellow">#FFCC00</color>
+</resources>
