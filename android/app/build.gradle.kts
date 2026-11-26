@@ -38,4 +38,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    // Ícones (equivalentes aos SF Symbols do iOS).
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    // Tradução no próprio aparelho (equivalente ao Translation da Apple).
+    implementation("com.google.mlkit:translate:17.0.3")
 }

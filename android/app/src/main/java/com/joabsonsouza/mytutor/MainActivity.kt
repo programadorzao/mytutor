@@ -4,203 +4,220 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
+import java.util.UUID
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        AppData.init(applicationContext)
         setContent { App() }
     }
 }
 
-/** Sem chave, abre o cadastro da chave (cada pessoa usa a sua). Com chave, vai para a conversa. */
+private enum class Screen { Splash, Onboarding, Home, Conversation }
+
+/** Tela inicial quando parado; tela de conversa durante a sessão (igual ao ContentView do iOS). */
 @Composable
 fun App() {
     val context = LocalContext.current
     val keys = remember { ApiKeys(context.applicationContext) }
-    var editingKey by remember { mutableStateOf(false) }
-    if (keys.gemini.isEmpty() || editingKey) {
-        KeyScreen(
-            keys = keys,
-            provider = Provider.Gemini,
-            onClose = if (keys.gemini.isEmpty()) null else ({ editingKey = false }),
-            onSaved = { editingKey = false },
-        )
-    } else {
-        VoiceTestScreen(apiKey = keys.gemini, onOpenKey = { editingKey = true })
-    }
-}
-
-/** Etapa 2: começar/encerrar, segurar para falar e ver o texto das falas. A tela final vem nas próximas etapas. */
-@Composable
-fun VoiceTestScreen(apiKey: String, onOpenKey: () -> Unit) {
-    val context = LocalContext.current
     val gemini = remember { GeminiLive() }
     DisposableEffect(Unit) { onDispose { gemini.stop() } }
 
-    fun start() = gemini.start(
-        apiKey = apiKey,
-        instructions = "You are Ana, a friendly English teacher for a Brazilian learner. Start with a short greeting and ask what he wants to talk about. Keep replies short and correct his mistakes kindly.",
-        voice = "Kore",
-        history = emptyList(),
-    )
+    var showSplash by remember { mutableStateOf(true) }
+    var maleVoice by remember { mutableStateOf(Settings.maleVoice) }
+    var conversations by remember { mutableStateOf(Storage.all()) }
+    /** Id da conversa atual no histórico (salvar de novo atualiza a mesma entrada). */
+    var currentId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var holding by remember { mutableStateOf(false) }
+    var mouth by remember { mutableDoubleStateOf(0.0) }
+    var dueCards by remember { mutableStateOf(FlashcardStore.due().size) }
 
-    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) start() else gemini.error = "Permita o microfone para conversar."
+    // Telas por cima.
+    var keyFor by remember { mutableStateOf<Provider?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
+    var editingProfile by remember { mutableStateOf(false) }
+    var showCards by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
+    var pendingHistory by remember { mutableStateOf<List<Line>?>(null) }
+
+    val tutor = if (maleVoice) "peter" else "ana"
+    val tutorName = if (maleVoice) "Peter" else "Ana"
+    val status = gemini.status
+
+    fun begin(history: List<Line>) {
+        if (keys.gemini.isEmpty()) {
+            keyFor = Provider.Gemini
+            return
+        }
+        gemini.start(keys.gemini, Prompt.instructions(tutorName, history), if (maleVoice) "Puck" else "Kore", history)
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(AppColors.background).safeDrawingPadding().padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = AppColors.yellow)) { append("my") }
-                withStyle(SpanStyle(color = Color.White)) { append("tutor") }
-            },
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
-        Text(statusText(gemini.status), color = AppColors.muted, fontSize = 14.sp)
-        gemini.error?.let {
-            Text(it, color = AppColors.danger, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
-        }
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val history = pendingHistory ?: emptyList()
+        pendingHistory = null
+        if (granted) begin(history) else gemini.error = "Permita o microfone nas configurações do celular para conversar."
+    }
 
-        val listState = rememberLazyListState()
-        LaunchedEffect(gemini.lines.size, gemini.lines.lastOrNull()?.text) {
-            if (gemini.lines.isNotEmpty()) listState.animateScrollToItem(gemini.lines.size - 1)
+    fun start(history: List<Line>) {
+        val ok = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (ok) begin(history) else {
+            pendingHistory = history
+            askMic.launch(Manifest.permission.RECORD_AUDIO)
         }
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(gemini.lines, key = { it.id }) { line ->
-                val mine = line.role == Line.Role.Me
-                Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-                    Text(
-                        line.text.trim(),
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (mine) AppColors.myBubble else AppColors.card)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+    }
+
+    fun continueConversation(c: SavedConversation) {
+        showHistory = false
+        showSettings = false
+        maleVoice = c.tutor == "peter"
+        Settings.maleVoice = maleVoice
+        currentId = c.id
+        start(c.lines)
+    }
+
+    fun saveCurrent() {
+        Storage.save(SavedConversation(id = currentId, savedAt = System.currentTimeMillis(), tutor = tutor, lines = gemini.lines.toList()))
+        conversations = Storage.all()
+    }
+
+    LaunchedEffect(Unit) {
+        delay(1200)
+        showSplash = false
+    }
+
+    // A cada ~60 ms aproxima a boca do volume da voz dela.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60)
+            val target = if (gemini.status == VoiceStatus.Speaking) {
+                val level = gemini.audioLevel
+                if (level > 0f) minOf(1.0, level * 5.0) else Random.nextDouble(0.25, 0.85)
+            } else 0.0
+            mouth += (target - mouth) * 0.55
+        }
+    }
+
+    // A conversa caiu com erro: salva sozinha para dar para continuar depois.
+    LaunchedEffect(gemini.error) {
+        if (gemini.error != null && gemini.lines.isNotEmpty()) saveCurrent()
+    }
+    // Ao voltar de uma conversa, atualiza o número de cartões para hoje.
+    LaunchedEffect(status == VoiceStatus.Idle) { dueCards = FlashcardStore.due().size }
+
+    val screen = when {
+        showSplash -> Screen.Splash
+        !Profile.onboarded -> Screen.Onboarding
+        status == VoiceStatus.Idle -> Screen.Home
+        else -> Screen.Conversation
+    }
+
+    Box(Modifier.fillMaxSize().background(AppColors.background)) {
+        AnimatedContent(screen, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { current ->
+            when (current) {
+                Screen.Splash -> SplashScreen()
+                Screen.Onboarding -> OnboardingScreen(keys) { }
+                Screen.Home -> HomeScreen(
+                    maleVoice = maleVoice,
+                    onPickTutor = { maleVoice = it; Settings.maleVoice = it },
+                    hasSaved = conversations.isNotEmpty(),
+                    dueCards = dueCards,
+                    error = gemini.error,
+                    onStart = {
+                        currentId = UUID.randomUUID().toString()
+                        start(emptyList())
+                    },
+                    onContinue = { showHistory = true },
+                    onOpenCards = { showCards = true },
+                    onOpenSettings = { showSettings = true },
+                )
+                Screen.Conversation -> {
+                    BackHandler { holding = false; gemini.stop() }
+                    ConversationScreen(
+                        tutor = tutor,
+                        tutorName = tutorName,
+                        providerName = "Gemini",
+                        lines = gemini.lines,
+                        status = status,
+                        error = gemini.error,
+                        mouth = mouth,
+                        holding = holding,
+                        isSaved = conversations.firstOrNull { it.id == currentId }?.lines?.map { it.text } == gemini.lines.map { it.text },
+                        onPress = {
+                            if (!holding && (status == VoiceStatus.Listening || status == VoiceStatus.Speaking)) {
+                                holding = true
+                                gemini.pressToTalk()
+                            }
+                        },
+                        onRelease = {
+                            if (holding) {
+                                holding = false
+                                gemini.releaseToTalk()
+                            }
+                        },
+                        onSave = { saveCurrent() },
+                        onEnd = { holding = false; gemini.stop() },
                     )
                 }
             }
         }
 
-        if (gemini.status == VoiceStatus.Idle) {
-            PillButton("Começar com a Ana", AppColors.yellow, AppColors.background) {
-                val ok = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                if (ok) start() else askMic.launch(Manifest.permission.RECORD_AUDIO)
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Chave do Gemini", color = AppColors.muted, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onOpenKey).padding(12.dp))
-        } else {
-            HoldToTalk(
-                enabled = gemini.status == VoiceStatus.Listening || gemini.status == VoiceStatus.Speaking,
-                onPress = { gemini.pressToTalk() },
-                onRelease = { gemini.releaseToTalk() },
+        if (showSettings) {
+            SettingsScreen(
+                keys = keys,
+                conversations = conversations,
+                onEditProfile = { editingProfile = true },
+                onOpenKey = { keyFor = it },
+                onContinue = { continueConversation(it) },
+                onDelete = { Storage.delete(it.id); conversations = Storage.all() },
+                onClose = { showSettings = false },
             )
-            Spacer(Modifier.height(12.dp))
-            PillButton("Encerrar", AppColors.card, Color.White) { gemini.stop() }
+        }
+        if (editingProfile) {
+            BackHandler { editingProfile = false }
+            OnboardingScreen(keys, editing = true) { editingProfile = false }
+        }
+        if (showCards) {
+            FlashcardsScreen { showCards = false; dueCards = FlashcardStore.due().size }
+        }
+        keyFor?.let { provider ->
+            BackHandler { keyFor = null }
+            KeySheet(keys, provider, onSaved = {}, onClose = { keyFor = null })
         }
     }
-}
 
-private fun statusText(status: VoiceStatus) = when (status) {
-    VoiceStatus.Idle -> "Toque em começar"
-    VoiceStatus.Connecting -> "Conectando…"
-    VoiceStatus.Listening -> "Segure o botão para falar"
-    VoiceStatus.Speaking -> "Ana está falando…"
-}
-
-/** Botão redondo: enquanto o dedo está nele, o microfone fica ligado. */
-@Composable
-private fun HoldToTalk(enabled: Boolean, onPress: () -> Unit, onRelease: () -> Unit) {
-    var holding by remember { mutableStateOf(false) }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(96.dp)
-            .clip(CircleShape)
-            .background(if (holding) AppColors.yellow else if (enabled) AppColors.card else AppColors.border)
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                detectTapGestures(onPress = {
-                    holding = true
-                    onPress()
-                    tryAwaitRelease()
-                    holding = false
-                    onRelease()
-                })
-            },
-    ) {
-        Text(
-            if (holding) "Falando" else "Segure",
-            color = if (holding) AppColors.background else Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+    if (showHistory) {
+        HistorySheet(
+            conversations,
+            onContinue = { continueConversation(it) },
+            onDelete = { Storage.delete(it.id); conversations = Storage.all() },
+            onClose = { showHistory = false },
         )
-    }
-}
-
-@Composable
-private fun PillButton(title: String, background: Color, foreground: Color, onClick: () -> Unit) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(background)
-            .clickable(onClick = onClick),
-    ) {
-        Text(title, color = foreground, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
     }
 }
