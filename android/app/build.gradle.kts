@@ -37,4 +37,5 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
 }
