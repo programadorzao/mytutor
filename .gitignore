@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+.swiftpm/
+ios/EnglishTutor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/
+
+# Android / Gradle
+.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Segredos: nunca subir chaves de API
+Secrets.swift
+secrets.properties
+.env
+*.env

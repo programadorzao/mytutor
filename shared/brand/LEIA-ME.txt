@@ -1,0 +1,17 @@
+MYTUTOR — Identidade de marca
+
+Paleta: #1D1D1B, #FFCC00, #3C5185, #FFFFFF
+Tipografia: Montserrat ExtraBold, caixa baixa, tracking aproximado -2%.
+O wordmark dos SVGs foi convertido em curvas vetoriais para não depender de fontes instaladas.
+
+Arquivos principais:
+- simbolo.svg (só o símbolo, transparente)
+- logo_horizontal.svg (símbolo + mytutor, transparente e variante azul)
+- logo_horizontal_escuro.svg (aplicação primária sobre fundo preto)
+- simbolo_preto.svg / simbolo_branco.svg (monocromáticas)
+- logo_horizontal_preto.svg / logo_horizontal_branco.svg
+- icone_ios_preto_1024.png e icone_ios_amarelo_1024.png (iOS opacos)
+- icone_ios_[preto/amarelo]_[60/29].png (testes em tamanho real)
+- preview_identidade.png (visão geral)
+
+Observação: símbolos vetoriais reconstruídos manualmente a partir do conceito visual selecionado.
