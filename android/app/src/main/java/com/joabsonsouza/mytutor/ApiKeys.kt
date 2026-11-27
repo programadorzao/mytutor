@@ -16,7 +16,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Qual IA conversa com você (por enquanto só o Gemini; a OpenAI entra depois). */
+/** Qual IA conversa com você. */
 enum class Provider { Gemini, OpenAI }
 
 /**
