@@ -65,8 +65,8 @@ private enum class CardMode(val title: String) { Word("Palavra"), Phrase("Expres
 fun NewCardSheet(sentence: String, onClose: () -> Unit) {
     val words = remember(sentence) { sentence.split(Regex("\\s+")).filter { it.isNotEmpty() } }
     var mode by remember { mutableStateOf(CardMode.Word) }
-    var range by remember { mutableStateOf<IntRange?>(null) }
-    var anchor by remember { mutableStateOf<Int?>(null) }
+    /** Palavras marcadas (posição na frase). No modo Palavra, no máximo uma. */
+    var selected by remember { mutableStateOf(setOf<Int>()) }
     var front by remember { mutableStateOf("") }
     var back by remember { mutableStateOf("") }
     var translating by remember { mutableStateOf(false) }
@@ -74,7 +74,7 @@ fun NewCardSheet(sentence: String, onClose: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     val canAdd = clean(front).isNotEmpty() && back.isNotBlank() && !translating
 
-    fun clearSelection() { range = null; anchor = null; front = ""; back = "" }
+    fun clearSelection() { selected = emptySet(); front = ""; back = "" }
 
     // Tradução automática do verso sempre que a frente muda.
     LaunchedEffect(front) {
@@ -85,21 +85,13 @@ fun NewCardSheet(sentence: String, onClose: () -> Unit) {
         translating = false
     }
 
+    /** Palavra: marca só a tocada. Expressão: cada toque marca ou desmarca aquela palavra, e o cartão junta as marcadas na ordem da frase. */
     fun tap(index: Int) {
-        when (mode) {
-            CardMode.Word -> range = if (range == index..index) null else index..index
-            CardMode.Phrase -> {
-                val start = anchor
-                if (start != null) {
-                    range = minOf(start, index)..maxOf(start, index)
-                    anchor = null
-                } else {
-                    anchor = index
-                    range = index..index
-                }
-            }
+        selected = when (mode) {
+            CardMode.Word -> if (selected == setOf(index)) emptySet() else setOf(index)
+            CardMode.Phrase -> if (index in selected) selected - index else selected + index
         }
-        front = range?.let { r -> words.slice(r).joinToString(" ") } ?: ""
+        front = selected.sorted().joinToString(" ") { words[it] }
     }
 
     BackHandler(onBack = onClose)
@@ -121,19 +113,17 @@ fun NewCardSheet(sentence: String, onClose: () -> Unit) {
                 clearSelection()
             }
             Overline(
-                when {
-                    mode == CardMode.Word -> "Toque numa palavra"
-                    anchor == null -> "Toque na primeira palavra da expressão"
-                    else -> "Agora toque na última palavra"
+                when (mode) {
+                    CardMode.Word -> "Toque numa palavra"
+                    CardMode.Phrase -> "Toque nas palavras da expressão (ou em todas, para a frase inteira)"
                 }
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 words.forEachIndexed { index, word ->
-                    val on = range?.contains(index) == true
+                    val on = index in selected
                     Text(
                         word, color = if (on) AppColors.background else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clip(CircleShape).background(if (on) AppColors.yellow else AppColors.card)
-                            .border(2.dp, if (anchor == index) Color.White else Color.Transparent, CircleShape)
                             .clickable { tap(index) }.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }

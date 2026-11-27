@@ -133,20 +133,19 @@ struct ConversationView: View {
                 .padding(.top, 12)
             }
             .defaultScrollAnchor(.bottom)
+            // A sessão de tradução só vale dentro deste bloco: usar num Task solto derruba o app.
             .translationTask(translationConfig) { session in
-                Task { @MainActor in
-                    guard let line = pendingTranslation else { return }
-                    pendingTranslation = nil
-                    // Traduz a fala e cada correção à parte, para cada tradução ficar embaixo do seu texto.
-                    let parts = Correction.split(line.text)
-                    do {
-                        let main = parts.main.isEmpty ? "" : try await session.translate(parts.main).targetText
-                        var fixes: [String] = []
-                        for fix in parts.fixes { fixes.append(try await session.translate(fix).targetText) }
-                        translations[line.id] = Translated(main: main, fixes: fixes)
-                    } catch {
-                        translations[line.id] = Translated(main: "Não foi possível traduzir agora.", fixes: [])
-                    }
+                guard let line = pendingTranslation else { return }
+                pendingTranslation = nil
+                // Traduz a fala e cada correção à parte, para cada tradução ficar embaixo do seu texto.
+                let parts = Correction.split(line.text)
+                do {
+                    let main = parts.main.isEmpty ? "" : try await session.translate(parts.main).targetText
+                    var fixes: [String] = []
+                    for fix in parts.fixes { fixes.append(try await session.translate(fix).targetText) }
+                    translations[line.id] = Translated(main: main, fixes: fixes)
+                } catch {
+                    translations[line.id] = Translated(main: "Não foi possível traduzir agora.", fixes: [])
                 }
             }
             .onChange(of: lines) { scrollToEnd(proxy) }

@@ -66,10 +66,8 @@ struct NewCardView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var mode = Mode.word
-    /// Trecho marcado: no modo Palavra, início e fim são a mesma palavra.
-    @State private var range: ClosedRange<Int>?
-    /// Modo Expressão: primeira palavra tocada, esperando o toque na última.
-    @State private var anchor: Int?
+    /// Palavras marcadas (posição na frase). No modo Palavra, no máximo uma.
+    @State private var selected: Set<Int> = []
     @State private var front = ""
     @State private var back = ""
     @State private var translating = false
@@ -95,12 +93,10 @@ struct NewCardView: View {
                     .pickerStyle(.segmented)
                     .onChange(of: mode) { clearSelection() }
 
-                    Overline(text: mode == .word
-                             ? "Toque numa palavra"
-                             : (anchor == nil ? "Toque na primeira palavra da expressão" : "Agora toque na última palavra"))
+                    Overline(text: hint)
                     FlowLayout(spacing: 8) {
                         ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                            let on = range?.contains(index) == true
+                            let on = selected.contains(index)
                             Button { tap(index) } label: {
                                 Text(word)
                                     .font(.system(size: 15, weight: .semibold))
@@ -108,7 +104,6 @@ struct NewCardView: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .background(on ? Theme.yellow : Theme.card, in: Capsule())
-                                    .overlay(Capsule().stroke(anchor == index ? .white : .clear, lineWidth: 2))
                             }
                             .buttonStyle(.plain)
                         }
@@ -162,19 +157,25 @@ struct NewCardView: View {
                     Button(added.isEmpty ? "Cancelar" : "Concluir") { dismiss() }
                 }
             }
+            // A sessão de tradução só vale dentro deste bloco: usar num Task solto derruba o app.
             .translationTask(translationConfig) { session in
-                Task { @MainActor in
-                    let text = clean(front)
-                    guard !text.isEmpty else { return }
-                    translating = true
-                    defer { translating = false }
-                    if let response = try? await session.translate(text), clean(front) == text {
-                        back = response.targetText
-                    }
+                let text = clean(front)
+                guard !text.isEmpty else { return }
+                translating = true
+                defer { translating = false }
+                if let response = try? await session.translate(text), clean(front) == text {
+                    back = response.targetText
                 }
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var hint: String {
+        switch mode {
+        case .word: "Toque numa palavra"
+        case .phrase: "Toque nas palavras da expressão (ou em todas, para a frase inteira)"
+        }
     }
 
     private func field(_ title: String, text: Binding<String>) -> some View {
@@ -187,27 +188,21 @@ struct NewCardView: View {
         }
     }
 
-    /// Palavra: marca só a tocada. Expressão: 1º toque = início, 2º = fim (sempre um trecho seguido).
+    /// Palavra: marca só a tocada. Expressão: cada toque marca ou desmarca aquela palavra,
+    /// e o cartão junta as marcadas na ordem da frase.
     private func tap(_ index: Int) {
         switch mode {
         case .word:
-            range = range == index...index ? nil : index...index
+            selected = selected == [index] ? [] : [index]
         case .phrase:
-            if let start = anchor {
-                range = min(start, index)...max(start, index)
-                anchor = nil
-            } else {
-                anchor = index
-                range = index...index
-            }
+            if selected.contains(index) { selected.remove(index) } else { selected.insert(index) }
         }
-        front = range.map { words[$0].joined(separator: " ") } ?? ""
+        front = selected.sorted().map { words[$0] }.joined(separator: " ")
         translate()
     }
 
     private func clearSelection() {
-        range = nil
-        anchor = nil
+        selected = []
         front = ""
         back = ""
     }
