@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,8 +48,13 @@ private enum class Screen { Splash, Onboarding, Home, Conversation }
 fun App() {
     val context = LocalContext.current
     val keys = remember { ApiKeys(context.applicationContext) }
-    val gemini = remember { GeminiLive() }
-    DisposableEffect(Unit) { onDispose { gemini.stop() } }
+    val geminiLive = remember { GeminiLive() }
+    val openAI = remember { OpenAIRealtime() }
+    DisposableEffect(Unit) { onDispose { geminiLive.stop(); openAI.stop() } }
+    var provider by remember { mutableStateOf(Settings.provider) }
+    /** A IA escolhida. */
+    val session: VoiceSession = if (provider == Provider.OpenAI) openAI else geminiLive
+    val currentSession by rememberUpdatedState(session)
 
     var showSplash by remember { mutableStateOf(true) }
     var maleVoice by remember { mutableStateOf(Settings.maleVoice) }
@@ -69,20 +75,26 @@ fun App() {
 
     val tutor = if (maleVoice) "peter" else "ana"
     val tutorName = if (maleVoice) "Peter" else "Ana"
-    val status = gemini.status
+    val status = session.status
 
     fun begin(history: List<Line>) {
-        if (keys.gemini.isEmpty()) {
-            keyFor = Provider.Gemini
+        // Sem chave da IA escolhida: abre o cadastro da chave.
+        val key = keys.key(provider)
+        if (key.isEmpty()) {
+            keyFor = provider
             return
         }
-        gemini.start(keys.gemini, Prompt.instructions(tutorName, history), if (maleVoice) "Puck" else "Kore", history)
+        val voice = when (provider) {
+            Provider.Gemini -> if (maleVoice) "Puck" else "Kore"
+            Provider.OpenAI -> if (maleVoice) "cedar" else "marin"
+        }
+        session.start(key, Prompt.instructions(tutorName, history), voice, history)
     }
 
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val history = pendingHistory ?: emptyList()
         pendingHistory = null
-        if (granted) begin(history) else gemini.error = "Permita o microfone nas configurações do celular para conversar."
+        if (granted) begin(history) else session.error = "Permita o microfone nas configurações do celular para conversar."
     }
 
     fun start(history: List<Line>) {
@@ -103,7 +115,7 @@ fun App() {
     }
 
     fun saveCurrent() {
-        Storage.save(SavedConversation(id = currentId, savedAt = System.currentTimeMillis(), tutor = tutor, lines = gemini.lines.toList()))
+        Storage.save(SavedConversation(id = currentId, savedAt = System.currentTimeMillis(), tutor = tutor, lines = session.lines.toList()))
         conversations = Storage.all()
     }
 
@@ -116,8 +128,8 @@ fun App() {
     LaunchedEffect(Unit) {
         while (true) {
             delay(60)
-            val target = if (gemini.status == VoiceStatus.Speaking) {
-                val level = gemini.audioLevel
+            val target = if (currentSession.status == VoiceStatus.Speaking) {
+                val level = currentSession.audioLevel
                 if (level > 0f) minOf(1.0, level * 5.0) else Random.nextDouble(0.25, 0.85)
             } else 0.0
             mouth += (target - mouth) * 0.55
@@ -125,8 +137,8 @@ fun App() {
     }
 
     // A conversa caiu com erro: salva sozinha para dar para continuar depois.
-    LaunchedEffect(gemini.error) {
-        if (gemini.error != null && gemini.lines.isNotEmpty()) saveCurrent()
+    LaunchedEffect(session.error) {
+        if (session.error != null && session.lines.isNotEmpty()) saveCurrent()
     }
     // Ao voltar de uma conversa, atualiza o número de cartões para hoje.
     LaunchedEffect(status == VoiceStatus.Idle) { dueCards = FlashcardStore.due().size }
@@ -148,7 +160,7 @@ fun App() {
                     onPickTutor = { maleVoice = it; Settings.maleVoice = it },
                     hasSaved = conversations.isNotEmpty(),
                     dueCards = dueCards,
-                    error = gemini.error,
+                    error = session.error,
                     onStart = {
                         currentId = UUID.randomUUID().toString()
                         start(emptyList())
@@ -158,31 +170,31 @@ fun App() {
                     onOpenSettings = { showSettings = true },
                 )
                 Screen.Conversation -> {
-                    BackHandler { holding = false; gemini.stop() }
+                    BackHandler { holding = false; session.stop() }
                     ConversationScreen(
                         tutor = tutor,
                         tutorName = tutorName,
-                        providerName = "Gemini",
-                        lines = gemini.lines,
+                        providerName = if (provider == Provider.OpenAI) "OpenAI" else "Gemini",
+                        lines = session.lines,
                         status = status,
-                        error = gemini.error,
+                        error = session.error,
                         mouth = mouth,
                         holding = holding,
-                        isSaved = conversations.firstOrNull { it.id == currentId }?.lines?.map { it.text } == gemini.lines.map { it.text },
+                        isSaved = conversations.firstOrNull { it.id == currentId }?.lines?.map { it.text } == session.lines.map { it.text },
                         onPress = {
                             if (!holding && (status == VoiceStatus.Listening || status == VoiceStatus.Speaking)) {
                                 holding = true
-                                gemini.pressToTalk()
+                                session.pressToTalk()
                             }
                         },
                         onRelease = {
                             if (holding) {
                                 holding = false
-                                gemini.releaseToTalk()
+                                session.releaseToTalk()
                             }
                         },
                         onSave = { saveCurrent() },
-                        onEnd = { holding = false; gemini.stop() },
+                        onEnd = { holding = false; session.stop() },
                     )
                 }
             }
@@ -191,6 +203,8 @@ fun App() {
         if (showSettings) {
             SettingsScreen(
                 keys = keys,
+                provider = provider,
+                onPickProvider = { provider = it; Settings.provider = it },
                 conversations = conversations,
                 onEditProfile = { editingProfile = true },
                 onOpenKey = { keyFor = it },
@@ -206,9 +220,10 @@ fun App() {
         if (showCards) {
             FlashcardsScreen { showCards = false; dueCards = FlashcardStore.due().size }
         }
-        keyFor?.let { provider ->
+        keyFor?.let { option ->
             BackHandler { keyFor = null }
-            KeySheet(keys, provider, onSaved = {}, onClose = { keyFor = null })
+            // Depois de salvar, essa IA já fica escolhida (igual ao iOS).
+            KeySheet(keys, option, onSaved = { provider = option; Settings.provider = option }, onClose = { keyFor = null })
         }
     }
 

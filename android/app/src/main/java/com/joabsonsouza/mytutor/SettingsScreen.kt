@@ -61,6 +61,8 @@ fun SettingsScreen(
     keys: ApiKeys,
     conversations: List<SavedConversation>,
     onEditProfile: () -> Unit,
+    provider: Provider,
+    onPickProvider: (Provider) -> Unit,
     onOpenKey: (Provider) -> Unit,
     onContinue: (SavedConversation) -> Unit,
     onDelete: (SavedConversation) -> Unit,
@@ -102,14 +104,17 @@ fun SettingsScreen(
             ProviderRow(
                 title = "Gemini Live", tag = "Recomendado", highlightTag = true,
                 detail = "Voz natural e corrige pronúncia. Chave grátis do Google, com limite diário.",
-                hasKey = keys.gemini.isNotEmpty(), selected = true, available = true,
-                onSelect = { if (keys.gemini.isEmpty()) onOpenKey(Provider.Gemini) }, onKey = { onOpenKey(Provider.Gemini) },
+                hasKey = keys.gemini.isNotEmpty(), selected = provider == Provider.Gemini, available = true,
+                // Sem chave, abre o cadastro; depois de salvar, já fica escolhida.
+                onSelect = { if (keys.gemini.isEmpty()) onOpenKey(Provider.Gemini) else onPickProvider(Provider.Gemini) },
+                onKey = { onOpenKey(Provider.Gemini) },
             )
             ProviderRow(
-                title = "OpenAI Realtime", tag = "Em breve no Android", highlightTag = false,
+                title = "OpenAI Realtime", tag = "Pago", highlightTag = false,
                 detail = "Voz natural e corrige pronúncia. Chave paga da OpenAI (precisa de crédito).",
-                hasKey = keys.openAI.isNotEmpty(), selected = false, available = false,
-                onSelect = { onOpenKey(Provider.OpenAI) }, onKey = { onOpenKey(Provider.OpenAI) },
+                hasKey = keys.openAI.isNotEmpty(), selected = provider == Provider.OpenAI, available = true,
+                onSelect = { if (keys.openAI.isEmpty()) onOpenKey(Provider.OpenAI) else onPickProvider(Provider.OpenAI) },
+                onKey = { onOpenKey(Provider.OpenAI) },
             )
             Text("Cada pessoa usa a própria chave, que fica só neste celular. Toque em \"Chave\" para ver como pegar a sua.",
                 color = AppColors.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)

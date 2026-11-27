@@ -33,17 +33,30 @@ data class Line(val role: Role, val text: String, val id: String = UUID.randomUU
     enum class Role { Me, Tutor }
 }
 
+/** O que a tela de conversa usa de cada IA (Gemini ou OpenAI). */
+interface VoiceSession {
+    val status: VoiceStatus
+    var error: String?
+    val lines: List<Line>
+    /** Volume da voz dela (0 a ~1), para a boca do avatar. */
+    val audioLevel: Float
+    fun start(apiKey: String, instructions: String, voice: String, history: List<Line>)
+    fun pressToTalk()
+    fun releaseToTalk()
+    fun stop()
+}
+
 /**
  * Conversa por voz com o Gemini Live (WebSocket), igual ao app iOS (ios/EnglishTutor/GeminiLive.swift):
  * segure para falar, ela responde com voz e o texto das duas falas aparece na tela.
  */
-class GeminiLive {
-    var status by mutableStateOf(VoiceStatus.Idle)
+class GeminiLive : VoiceSession {
+    override var status by mutableStateOf(VoiceStatus.Idle)
         private set
-    var error by mutableStateOf<String?>(null)
-    val lines = mutableStateListOf<Line>()
+    override var error by mutableStateOf<String?>(null)
+    override val lines = mutableStateListOf<Line>()
     /** Volume da voz dela (0 a ~1), para a boca do avatar. */
-    var audioLevel by mutableStateOf(0f)
+    override var audioLevel by mutableStateOf(0f)
         private set
 
     private val main = Handler(Looper.getMainLooper())
@@ -73,7 +86,7 @@ class GeminiLive {
     private var micStarted = false
     private val preroll = ArrayDeque<String>()
 
-    fun start(apiKey: String, instructions: String, voice: String, history: List<Line>) {
+    override fun start(apiKey: String, instructions: String, voice: String, history: List<Line>) {
         error = null
         lines.clear()
         lines.addAll(history)
@@ -125,7 +138,7 @@ class GeminiLive {
 
     // region Segure para falar
 
-    fun pressToTalk() {
+    override fun pressToTalk() {
         if (status == VoiceStatus.Speaking) stopPlayback()
         openMine = null // nova fala sua começa um balão novo
         synchronized(mic) {
@@ -135,7 +148,7 @@ class GeminiLive {
         }
     }
 
-    fun releaseToTalk() {
+    override fun releaseToTalk() {
         // Espera um pouco para não cortar a última sílaba.
         main.postDelayed({
             val started = synchronized(mic) {
@@ -152,7 +165,7 @@ class GeminiLive {
 
     // endregion
 
-    fun stop() {
+    override fun stop() {
         synchronized(mic) { micOn = false; micStarted = false; preroll.clear() }
         socket?.close(1000, null)
         socket = null

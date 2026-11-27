@@ -17,6 +17,11 @@ object Settings {
     var maleVoice: Boolean
         get() = AppData.prefs.getBoolean("maleVoice", false)
         set(value) = AppData.prefs.edit().putBoolean("maleVoice", value).apply()
+
+    /** Qual IA conversa com você. */
+    var provider: Provider
+        get() = runCatching { Provider.valueOf(AppData.prefs.getString("provider", null) ?: "") }.getOrDefault(Provider.Gemini)
+        set(value) = AppData.prefs.edit().putString("provider", value.name).apply()
 }
 
 /**
